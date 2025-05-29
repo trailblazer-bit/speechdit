@@ -1,0 +1,96 @@
+defaults:
+  - base
+  - _self_
+
+project: mel_vae_baseline_new_emillia_8
+resume_weights_only: false
+
+# Lightning Trainer
+trainer:
+  accelerator: gpu
+  devices: auto
+  strategy: ddp_find_unused_parameters_true
+  precision: 32
+  max_steps: 40_000_000
+  val_check_interval: 10000
+  benchmark: false
+
+sample_rate: 22050
+hop_length: 256
+num_mels: 80
+n_fft: 1024
+win_length: 1024
+
+# Dataset Configuration
+train_dataset:
+  _target_: fish_speech.datasets.melvae_dataset_emillia_8.SpeechDitDataset
+  sample_rate: ${sample_rate}
+  hop_length: ${hop_length}
+  split: 'train'
+  save_items_fp: data/6kw_item_data/train_data.json
+  save_lens_fp: data/6kw_item_data/train_lengths_list.json
+  stride: 4
+
+
+val_dataset:
+  _target_: fish_speech.datasets.melvae_dataset_emillia_8.SpeechDitDataset
+  sample_rate: ${sample_rate}
+  hop_length: ${hop_length}
+  split: 'valid'
+  stride: 4
+  save_items_fp: data/6kw_item_data/valid_data.json
+  save_lens_fp: data/6kw_item_data/valid_lengths_list.json
+
+data:
+  _target_: fish_speech.datasets.melvae_dataset_emillia_8.FlowTokenDecoderDataModule
+  train_dataset: ${train_dataset}
+  val_dataset: ${val_dataset}
+  num_workers: 8
+  batch_size: 32
+  val_batch_size: 8
+  max_tokens: 20000
+
+# Model Configuration
+model:
+  _target_: fish_speech.models.melvae.MelVAE_Task
+  lambda_mel: 1.0
+  lambda_adv: 0.05
+  lambda_kl: 0.01
+  # accumulate_grad_batches: 1
+
+  generator:
+    _target_: fish_speech.models.melvae.melae_kl_new.MelAEKL
+    hidden_size: 256
+    latent_dim: 16
+    stride: 4
+  discriminator:
+    _target_: fish_speech.models.melvae.disc.Discriminator
+    time_lengths: [32,64,128]
+    freq_length: 80
+    kernel: [3,3]
+    c_in: 1
+    hidden_size: 256
+
+  
+  
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 5e-5
+    betas: [0.9, 0.98]
+    eps: 1e-6
+  
+  lr_scheduler:
+    _target_: transformers.get_cosine_schedule_with_warmup
+    _partial_: true
+    num_warmup_steps: 20000
+    num_training_steps: 4000000
+
+callbacks:
+  grad_norm_monitor:
+    sub_module: 
+      - generator
+
+  model_checkpoint:
+    every_n_train_steps: 10000
+    save_top_k: 100

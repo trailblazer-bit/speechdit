@@ -1,0 +1,114 @@
+defaults:
+  - base
+  - _self_
+
+project: v2s_unit_baseline
+resume_weights_only: false
+
+# Lightning Trainer
+trainer:
+  accelerator: gpu
+  devices: auto
+  strategy: ddp_find_unused_parameters_true
+  precision: 32
+  max_steps: 500_000
+  val_check_interval: 100
+  benchmark: false
+
+sample_rate: 22050
+hop_length: 256
+num_mels: 80
+n_fft: 1024
+win_length: 1024
+
+hidden_size: 512
+token_vocab: 8192
+
+# Dataset Configuration
+train_dataset:
+  _target_: fish_speech.datasets.av_unit_dataset.AVHubertDataset
+  manifest_path: data/lrs3/train_data.json
+  label_paths: []
+  label_rates: -1
+  single_target: True
+  pad_audio: True
+  stack_order_audio: 4
+  max_keep_sample_size: 500
+  min_keep_sample_size: 25
+  max_sample_size: 500
+  modalities: ["video"]
+  random_crop: Fasle
+  normalize: True
+  image_mean: 0.421
+  image_std: 0.165
+  image_crop_size: 88
+  image_aug: True
+  sample_rate: 16000
+
+val_dataset:
+  _target_: fish_speech.datasets.av_unit_dataset.AVHubertDataset
+  manifest_path: data/lrs3/valid_data.json
+  label_paths: []
+  label_rates: -1
+  single_target: True
+  pad_audio: True
+  stack_order_audio: 4
+  max_keep_sample_size: 500
+  min_keep_sample_size: 25
+  max_sample_size: 500
+  modalities: ["video"]
+  random_crop: Fasle
+  normalize: True
+  image_mean: 0.421
+  image_std: 0.165
+  image_crop_size: 88
+  image_aug: True
+  sample_rate: 16000
+
+data:
+  _target_: fish_speech.datasets.av_unit_dataset.FlowDecoderDataModule
+  train_dataset: ${train_dataset}
+  val_dataset: ${val_dataset}
+  num_workers: 8
+  batch_size: 32
+  val_batch_size: 8
+  token_vocab: ${token_vocab}
+  max_tokens: 12800
+
+# Model Configurationq
+model:
+  _target_: fish_speech.models.v2s_unit.V2SUnitPredictorTask
+
+  generator:
+    _target_: fish_speech.models.v2s_unit.model.MaskTransformerUnit
+    hidden_size: 1536
+    num_layers: 16
+    num_heads: 16
+    cfg_scale: 0.15
+    token_codebook_size: ${token_vocab}
+    ssl_dim: 1024
+    avhubert_ckpt_path: /apdcephfs_nj7/share_303172353/ggyzhang/projects/v2s/checkpoints/large_vox_iter5.pt
+    # avhubert_output_layer: None
+
+  
+  optimizer:
+    _target_: torch.optim.AdamW
+    _partial_: true
+    lr: 1e-4
+    betas: [0.8, 0.99]
+    eps: 1e-6
+
+  lr_scheduler:
+    _target_: transformers.get_cosine_schedule_with_warmup
+    _partial_: true
+    num_warmup_steps: 100
+    num_training_steps: 500000
+
+callbacks:
+  grad_norm_monitor:
+    sub_module: 
+      - generator
+
+  model_checkpoint:
+    every_n_train_steps: 100
+    save_top_k: 50
